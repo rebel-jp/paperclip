@@ -1,0 +1,79 @@
+version: 2
+
+updates:
+  # Root workspace (devDependencies, tooling)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      # Group minor/patch updates to reduce PR noise
+      dev-tooling:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Server — includes external adapter packages like hermes-paperclip-adapter
+  - package-ecosystem: "npm"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "server"
+    groups:
+      adapter-packages:
+        patterns:
+          - "hermes-paperclip-adapter"
+          - "*-paperclip-adapter"
+      minor-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "hermes-paperclip-adapter"
+          - "*-paperclip-adapter"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # UI — also depends on external adapter packages
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "ui"
+    groups:
+      adapter-packages:
+        patterns:
+          - "hermes-paperclip-adapter"
+          - "*-paperclip-adapter"
+      minor-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "hermes-paperclip-adapter"
+          - "*-paperclip-adapter"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
