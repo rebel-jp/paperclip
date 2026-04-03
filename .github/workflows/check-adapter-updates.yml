@@ -1,0 +1,102 @@
+name: Check Adapter Updates
+
+on:
+  schedule:
+    # Run every Monday at 09:00 UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check for external adapter updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # External adapter packages and which manifest pins them.
+          # Add new external adapters here as they are adopted.
+          declare -A ADAPTERS=(
+            ["hermes-paperclip-adapter"]="server/package.json"
+          )
+
+          for pkg in "${!ADAPTERS[@]}"; do
+            manifest="${ADAPTERS[$pkg]}"
+
+            # Current pinned range (e.g. ^0.3.0)
+            pinned="$(node -e "console.log(require('./${manifest}').dependencies?.['${pkg}'] ?? '')")"
+            if [ -z "$pinned" ]; then
+              echo "⚠ ${pkg} not found in ${manifest}, skipping."
+              continue
+            fi
+
+            # Latest version on npm
+            latest="$(npm view "${pkg}" version 2>/dev/null || echo "")"
+            if [ -z "$latest" ]; then
+              echo "⚠ Could not fetch latest version for ${pkg}, skipping."
+              continue
+            fi
+
+            # Check if the latest version satisfies the current range
+            satisfies="$(node -e "
+              const semver = require('semver') ?? await import('semver');
+              console.log(semver.satisfies('${latest}', '${pinned}') ? 'yes' : 'no');
+            " 2>/dev/null || echo "unknown")"
+
+            if [ "$satisfies" = "yes" ]; then
+              echo "✓ ${pkg}@${latest} satisfies ${pinned}"
+              continue
+            fi
+
+            echo "⬆ ${pkg}@${latest} is outside pinned range ${pinned}"
+
+            # Check if an issue already exists for this version
+            issue_title="chore(deps): update ${pkg} to ${latest}"
+            existing="$(gh issue list --search "\"${issue_title}\" in:title" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")"
+
+            if [ -n "$existing" ]; then
+              echo "  Issue #${existing} already open, skipping."
+              continue
+            fi
+
+            # Open a tracking issue
+            gh issue create \
+              --title "${issue_title}" \
+              --label "dependencies" \
+              --body "$(cat <<EOF
+          A new version of \`${pkg}\` is available that falls outside the currently pinned range.
+
+          | | Version |
+          |---|---|
+          | **Pinned range** | \`${pinned}\` |
+          | **Latest on npm** | \`${latest}\` |
+          | **Manifest** | \`${manifest}\` |
+
+          ### What to do
+
+          1. Review the [changelog](https://www.npmjs.com/package/${pkg}?activeTab=versions) for breaking changes.
+          2. Update the version range in \`server/package.json\` and \`ui/package.json\`.
+          3. Run \`pnpm install\` locally and verify the build + tests pass.
+          4. Open a PR — the \`refresh-lockfile\` workflow will handle the lockfile.
+
+          *This issue was created automatically by the [check-adapter-updates](.github/workflows/check-adapter-updates.yml) workflow.*
+          EOF
+          )"
+
+            echo "  Created tracking issue."
+          done
